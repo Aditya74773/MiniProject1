@@ -1,0 +1,32 @@
+# ----------------------------------------
+# General Log and Backup Files
+# ----------------------------------------
+# Ignore all log files generated during runs
+*.log
+
+# Ignore common backup files
+*.backup
+
+# ----------------------------------------
+# Terraform Files (Critical to Ignore)
+# ----------------------------------------
+# Ignore the local Terraform state file
+# DO NOT COMMIT terraform.tfstate or terraform.tfstate.backup
+terraform.tfstate
+terraform.tfstate.backup
+
+# Ignore the directory where providers and modules are downloaded.
+# This often contains large binaries and is responsible for the 100MB+ errors.
+.terraform/
+
+# Ignore provider cache file (used for automatic downloading)
+.terraform.lock.hcl
+
+# Ignore crash log files
+crash.log
+
+# ----------------------------------------
+# Ansible Files
+# ----------------------------------------
+# Ignore the Ansible private temporary files
+.ansible/
