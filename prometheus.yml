@@ -1,169 +1,235 @@
+# ---
+# - name: Install Prometheus and Node Exporter
+#   hosts: all
+#   become: yes
+#   tasks:
+#     # --- PRE-REQUISITES ---
+#     - name: Update apt cache
+#       apt:
+#         update_cache: yes
+
+#     - name: Install required packages
+#       apt:
+#         name:
+#           - wget
+#           - curl
+#           - tar
+#         state: present
+
+#     # --- NODE EXPORTER INSTALLATION ---
+#     - name: Create node_exporter user
+#       user:
+#         name: node_exporter
+#         shell: /bin/false
+#         createhome: no
+#         state: present
+
+#     - name: Download Node Exporter
+#       get_url:
+#         url: https://github.com/prometheus/node_exporter/releases/download/v1.5.0/node_exporter-1.5.0.linux-amd64.tar.gz
+#         dest: /tmp/node_exporter-1.5.0.linux-amd64.tar.gz
+
+#     - name: Extract Node Exporter
+#       unarchive:
+#         src: /tmp/node_exporter-1.5.0.linux-amd64.tar.gz
+#         dest: /tmp
+#         remote_src: yes
+
+#     - name: Copy Node Exporter binary
+#       copy:
+#         src: /tmp/node_exporter-1.5.0.linux-amd64/node_exporter
+#         dest: /usr/local/bin/
+#         owner: node_exporter
+#         group: node_exporter
+#         mode: '0755'
+#         remote_src: yes
+
+#     - name: Create Node Exporter systemd service
+#       copy:
+#         content: |
+#           [Unit]
+#           Description=Node Exporter
+#           Wants=network-online.target
+#           After=network-online.target
+
+#           [Service]
+#           User=node_exporter
+#           Group=node_exporter
+#           Type=simple
+#           ExecStart=/usr/local/bin/node_exporter
+
+#           [Install]
+#           WantedBy=multi-user.target
+#         dest: /etc/systemd/system/node_exporter.service
+#         mode: '0644'
+
+#     # --- PROMETHEUS INSTALLATION ---
+#     - name: Create prometheus user
+#       user:
+#         name: prometheus
+#         shell: /bin/false
+#         createhome: no
+#         state: present
+
+#     - name: Create prometheus directories
+#       file:
+#         path: "{{ item }}"
+#         state: directory
+#         owner: prometheus
+#         group: prometheus
+#       loop:
+#         - /etc/prometheus
+#         - /var/lib/prometheus
+
+#     - name: Download Prometheus
+#       get_url:
+#         url: https://github.com/prometheus/prometheus/releases/download/v2.40.0/prometheus-2.40.0.linux-amd64.tar.gz
+#         dest: /tmp/prometheus-2.40.0.linux-amd64.tar.gz
+
+#     - name: Extract Prometheus
+#       unarchive:
+#         src: /tmp/prometheus-2.40.0.linux-amd64.tar.gz
+#         dest: /tmp
+#         remote_src: yes
+
+#     - name: Copy Prometheus binary
+#       copy:
+#         src: /tmp/prometheus-2.40.0.linux-amd64/prometheus
+#         dest: /usr/local/bin/
+#         owner: prometheus
+#         group: prometheus
+#         mode: '0755'
+#         remote_src: yes
+
+#     # --- CONFIGURATION (UPDATED TO SCRAPE NODE EXPORTER) ---
+#     - name: Create Prometheus config (Scraping Node Exporter)
+#       copy:
+#         content: |
+#           global:
+#             scrape_interval: 15s
+
+#           scrape_configs:
+#             - job_name: 'prometheus'
+#               static_configs:
+#                 - targets: ['localhost:9090']
+
+#             - job_name: 'node_exporter'
+#               static_configs:
+#                 - targets: ['localhost:9100']
+#         dest: /etc/prometheus/prometheus.yml
+#         owner: prometheus
+#         group: prometheus
+#         mode: '0644'
+
+#     - name: Create Prometheus systemd service
+#       copy:
+#         content: |
+#           [Unit]
+#           Description=Prometheus
+#           Wants=network-online.target
+#           After=network-online.target
+
+#           [Service]
+#           User=prometheus
+#           Group=prometheus
+#           Type=simple
+#           ExecStart=/usr/local/bin/prometheus \
+#             --config.file=/etc/prometheus/prometheus.yml \
+#             --storage.tsdb.path=/var/lib/prometheus/ \
+#             --web.listen-address=0.0.0.0:9090
+
+#           [Install]
+#           WantedBy=multi-user.target
+#         dest: /etc/systemd/system/prometheus.service
+#         owner: root
+#         group: root
+#         mode: '0644'
+
+#     # --- START SERVICES ---
+#     - name: Reload systemd
+#       systemd:
+#         daemon_reload: yes
+
+#     - name: Start and Enable Node Exporter
+#       systemd:
+#         name: node_exporter
+#         enabled: yes
+#         state: started
+
+#     - name: Start and Enable Prometheus
+#       systemd:
+#         name: prometheus
+#         enabled: yes
+#         state: restarted
+
+#     - name: Wait for Prometheus
+#       wait_for:
+#         port: 9090
+#         delay: 2
+#         timeout: 10
+
 ---
 - name: Install Prometheus and Node Exporter
   hosts: all
   become: yes
   tasks:
-    # --- PRE-REQUISITES ---
     - name: Update apt cache
-      apt:
+      ansible.builtin.apt:
         update_cache: yes
+        cache_valid_time: 3600
 
-    - name: Install required packages
-      apt:
-        name:
-          - wget
-          - curl
-          - tar
-        state: present
-
-    # --- NODE EXPORTER INSTALLATION ---
-    - name: Create node_exporter user
-      user:
-        name: node_exporter
-        shell: /bin/false
-        createhome: no
-        state: present
-
-    - name: Download Node Exporter
-      get_url:
-        url: https://github.com/prometheus/node_exporter/releases/download/v1.5.0/node_exporter-1.5.0.linux-amd64.tar.gz
-        dest: /tmp/node_exporter-1.5.0.linux-amd64.tar.gz
-
-    - name: Extract Node Exporter
-      unarchive:
-        src: /tmp/node_exporter-1.5.0.linux-amd64.tar.gz
-        dest: /tmp
-        remote_src: yes
-
-    - name: Copy Node Exporter binary
-      copy:
-        src: /tmp/node_exporter-1.5.0.linux-amd64/node_exporter
-        dest: /usr/local/bin/
-        owner: node_exporter
-        group: node_exporter
-        mode: '0755'
-        remote_src: yes
-
-    - name: Create Node Exporter systemd service
-      copy:
-        content: |
-          [Unit]
-          Description=Node Exporter
-          Wants=network-online.target
-          After=network-online.target
-
-          [Service]
-          User=node_exporter
-          Group=node_exporter
-          Type=simple
-          ExecStart=/usr/local/bin/node_exporter
-
-          [Install]
-          WantedBy=multi-user.target
-        dest: /etc/systemd/system/node_exporter.service
-        mode: '0644'
-
-    # --- PROMETHEUS INSTALLATION ---
-    - name: Create prometheus user
-      user:
+    # 1. Install Prometheus (The Server)
+    - name: Install Prometheus
+      ansible.builtin.apt:
         name: prometheus
-        shell: /bin/false
-        createhome: no
         state: present
 
-    - name: Create prometheus directories
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: prometheus
-        group: prometheus
-      loop:
-        - /etc/prometheus
-        - /var/lib/prometheus
+    # 2. Install Node Exporter (The Metrics Collector)
+    - name: Install Node Exporter
+      ansible.builtin.apt:
+        name: prometheus-node-exporter
+        state: present
 
-    - name: Download Prometheus
-      get_url:
-        url: https://github.com/prometheus/prometheus/releases/download/v2.40.0/prometheus-2.40.0.linux-amd64.tar.gz
-        dest: /tmp/prometheus-2.40.0.linux-amd64.tar.gz
-
-    - name: Extract Prometheus
-      unarchive:
-        src: /tmp/prometheus-2.40.0.linux-amd64.tar.gz
-        dest: /tmp
-        remote_src: yes
-
-    - name: Copy Prometheus binary
-      copy:
-        src: /tmp/prometheus-2.40.0.linux-amd64/prometheus
-        dest: /usr/local/bin/
-        owner: prometheus
-        group: prometheus
-        mode: '0755'
-        remote_src: yes
-
-    # --- CONFIGURATION (UPDATED TO SCRAPE NODE EXPORTER) ---
-    - name: Create Prometheus config (Scraping Node Exporter)
-      copy:
+    # 3. Configure Prometheus to scrape Node Exporter
+    # We write a basic config file that tells Prometheus to look at localhost:9100
+    - name: Configure Prometheus to scrape Node Exporter
+      ansible.builtin.copy:
+        dest: /etc/prometheus/prometheus.yml
         content: |
           global:
             scrape_interval: 15s
 
           scrape_configs:
             - job_name: 'prometheus'
+              scrape_interval: 5s
               static_configs:
                 - targets: ['localhost:9090']
 
             - job_name: 'node_exporter'
+              scrape_interval: 5s
               static_configs:
                 - targets: ['localhost:9100']
-        dest: /etc/prometheus/prometheus.yml
-        owner: prometheus
-        group: prometheus
-        mode: '0644'
-
-    - name: Create Prometheus systemd service
-      copy:
-        content: |
-          [Unit]
-          Description=Prometheus
-          Wants=network-online.target
-          After=network-online.target
-
-          [Service]
-          User=prometheus
-          Group=prometheus
-          Type=simple
-          ExecStart=/usr/local/bin/prometheus \
-            --config.file=/etc/prometheus/prometheus.yml \
-            --storage.tsdb.path=/var/lib/prometheus/ \
-            --web.listen-address=0.0.0.0:9090
-
-          [Install]
-          WantedBy=multi-user.target
-        dest: /etc/systemd/system/prometheus.service
         owner: root
         group: root
         mode: '0644'
+      notify: Restart Prometheus
 
-    # --- START SERVICES ---
-    - name: Reload systemd
-      systemd:
-        daemon_reload: yes
-
-    - name: Start and Enable Node Exporter
-      systemd:
-        name: node_exporter
-        enabled: yes
+    # 4. Ensure services are running and enabled
+    - name: Start and enable Node Exporter
+      ansible.builtin.service:
+        name: prometheus-node-exporter
         state: started
-
-    - name: Start and Enable Prometheus
-      systemd:
-        name: prometheus
         enabled: yes
-        state: restarted
 
-    - name: Wait for Prometheus
-      wait_for:
-        port: 9090
-        delay: 2
-        timeout: 10
+    - name: Start and enable Prometheus
+      ansible.builtin.service:
+        name: prometheus
+        state: started
+        enabled: yes
+
+  handlers:
+    # This runs only if the config file changes
+    - name: Restart Prometheus
+      ansible.builtin.service:
+        name: prometheus
+        state: restarted
