@@ -76,20 +76,7 @@ resource "null_resource" "graphana_provisioner" {
 
    provisioner "local-exec" {
     interpreter = ["wsl", "bash", "-c"]
-    # Revert to the clean EOT block
-    command = <<EOT
-        sleep 30;
-        mkdir -p ~/.ssh;
-        cp "/mnt/c/Users/Aditya Kumar/.ssh/id_rsa" ~/.ssh/id_rsa;
-        chmod 600 ~/.ssh/id_rsa;
-        export ANSIBLE_HOST_KEY_CHECKING=False;
-        cd /mnt/c/Users/Aditya\ Kumar/Downloads/MiniProject/MiniProject;
-        echo "=== Installing Grafana ===";
-        ansible-playbook -i "${aws_instance.web_server[0].public_ip}," --user ubuntu --private-key ~/.ssh/id_rsa -v grafana_playbook.yml;
-        echo "=== Installing Prometheus ===";
-        ansible-playbook -i "${aws_instance.web_server[0].public_ip}," --user ubuntu --private-key ~/.ssh/id_rsa -v prometheus.yml;
-
-    EOT
+    command = "sleep 30; mkdir -p ~/.ssh; cp '/mnt/c/Users/Aditya Kumar/.ssh/id_rsa' ~/.ssh/id_rsa; chmod 600 ~/.ssh/id_rsa; export ANSIBLE_HOST_KEY_CHECKING=False; cd '/mnt/c/Users/Aditya Kumar/Downloads/MiniProject/MiniProject'; echo '=== Installing Grafana ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa -v grafana_playbook.yml; echo '=== Installing Prometheus ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa -v prometheus.yml"
 }
 }
 # CLEANER FIX from previous response (preferred)
