@@ -74,12 +74,16 @@ resource "null_resource" "graphana_provisioner" {
 #         resource "null_resource" "graphana_provisioner" {
 #   # ... (other settings) ...
 
-   provisioner "local-exec" {
-    interpreter = ["wsl", "bash", "-c"]
-    command = "sleep 30; mkdir -p ~/.ssh; cp '/mnt/c/Users/Aditya Kumar/.ssh/id_rsa' ~/.ssh/id_rsa; chmod 600 ~/.ssh/id_rsa; export ANSIBLE_HOST_KEY_CHECKING=False; cd '/mnt/c/Users/Aditya Kumar/Downloads/MiniProject/MiniProject'; echo '=== Installing Grafana ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa -v grafana_playbook.yml; echo '=== Installing Prometheus ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa -v prometheus.yml"
+#    provisioner "local-exec" {
+#     interpreter = ["wsl", "bash", "-c"]
+#     command = "sleep 30; mkdir -p ~/.ssh; cp '/mnt/c/Users/Aditya Kumar/.ssh/id_rsa' ~/.ssh/id_rsa; chmod 600 ~/.ssh/id_rsa; export ANSIBLE_HOST_KEY_CHECKING=False; cd '/mnt/c/Users/Aditya Kumar/Downloads/MiniProject/MiniProject'; echo '=== Installing Grafana ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa -v grafana_playbook.yml; echo '=== Installing Prometheus ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa -v prometheus.yml"
+# }
+provisioner "local-exec" {
+  interpreter = ["/bin/bash", "-c"]
+  command = "sleep 30; mkdir -p ~/.ssh; cp /home/aadii_linux/.ssh/id_rsa_wsl ~/.ssh/id_rsa_wsl; chmod 600 ~/.ssh/id_rsa_wsl; export ANSIBLE_HOST_KEY_CHECKING=False; cd '/mnt/c/Users/Aditya Kumar/Downloads/MiniProject/MiniProject'; echo '=== Installing Grafana ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa_wsl -v grafana_playbook.yml; echo '=== Installing Prometheus ==='; ansible-playbook -i '${aws_instance.web_server[0].public_ip},' --user ubuntu --private-key ~/.ssh/id_rsa_wsl -v prometheus.yml"
 }
 }
-# CLEANER FIX from previous response (preferred)
+# CLEANER FIX from previous response (preferred)F
 # provisioner "local-exec" {
 #   interpreter = ["wsl", "bash", "-c"]
 #   # Use tr -d '\r' to strip Windows carriage returns from the multiline command
