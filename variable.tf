@@ -30,27 +30,27 @@ variable "key_name" {
     default     = "id_rsa"
 }
 
-# variable "public_key_path" {
-#     description = "The path to the public key file"
-#     type        = string
-#     # FIX: Use quotes and forward slashes for the path
-#     default     = "C:/Users/Aditya Kumar/.ssh/id_rsa.pub" 
-# }
-variable "private_key_path" {
-    description = "The path to the private key file"
+variable "public_key_path" {
+    description = "The path to the public key file"
     type        = string
-    # FIX: Changed the default value from Windows path to the Linux path.
-    default     = "/home/aadii_linux/.ssh/id_rsa_wsl"
+    # FIX: Use quotes and forward slashes for the path
+    default     = "C:/Users/Aditya Kumar/.ssh/id_rsa.pub" 
 }
 # variable "private_key_path" {
 #     description = "The path to the private key file"
 #     type        = string
-#     # FIX: Use quotes and forward slashes for the path
-#     default     = "C:/Users/Aditya Kumar/.ssh/id_rsa"
+#     # FIX: Changed the default value from Windows path to the Linux path.
+#     default     = "/home/aadii_linux/.ssh/id_rsa_wsl"
 # }
-variable "public_key_path" {
-    description = "The path to the public key file"
+variable "private_key_path" {
+    description = "The path to the private key file"
     type        = string
-    # FIX: Use the Linux path where the public key is accessible on the Jenkins agent.
-    default     = "/home/aadii_linux/.ssh/id_rsa_wsl.pub" 
+    # FIX: Use quotes and forward slashes for the path
+    default     = "C:/Users/Aditya Kumar/.ssh/id_rsa"
 }
+# variable "public_key_path" {
+#     description = "The path to the public key file"
+#     type        = string
+#     # FIX: Use the Linux path where the public key is accessible on the Jenkins agent.
+#     default     = "/home/aadii_linux/.ssh/id_rsa_wsl.pub" 
+# }
