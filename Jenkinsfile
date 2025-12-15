@@ -479,20 +479,18 @@ pipeline {
 
         stage('Ansible Configuration') {
             steps {
-                // *** FIX APPLIED HERE for "Permission denied (publickey)" ***
-                // We assume:
-                // 1. The key is named 'id_rsa'.
-                // 2. The key is located at /home/adii_linux/.ssh/id_rsa inside WSL.
-                // 3. The connection user is 'ec2-user'. Change '-u ec2-user' if your AMI uses 'ubuntu', 'centos', etc.
-                bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ec2-user --private-key /home/adii_linux/.ssh/id_rsa"
+                // *** FIX APPLIED HERE ***
+                // CHANGED USERNAME from 'ec2-user' to 'ubuntu' 
+                // to match the Ubuntu 22.04 AMI (ami-0fb0b230890ccd1e6)
+                bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ubuntu --private-key /home/adii_linux/.ssh/id_rsa"
             }
         }
     }
 
     post {
         always {
-            // *** FIX APPLIED HERE for java.lang.NoSuchMethodError: No such DSL method 'steps' ***
-            // Removed the incorrect 'steps' block around the file deletion command.
+            // FIX APPLIED HERE: Removed the incorrect 'steps' block 
+            // to resolve the NoSuchMethodError in the Post Actions.
             
             // Use 'bat' for file removal on Windows
             bat 'del /f dynamic_inventory.ini'
