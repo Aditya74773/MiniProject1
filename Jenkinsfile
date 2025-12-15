@@ -306,14 +306,13 @@ pipeline {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
         SSH_CRED_ID = 'Aadii_id'
-        // TF_CLI_CONFIG_FILE = credentials('aws-creds') // REMOVED: Incorrect usage
     }
 
     stages {
 
         stage('Terraform Provisioning') {
             steps {
-                // Use withCredentials to inject AWS credentials as environment variables
+                // Securely inject AWS credentials
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         // Core Terraform commands remain as bat
@@ -335,8 +334,8 @@ pipeline {
                         echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
                         echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
 
-                        // 3. Create dynamic inventory file (Using Groovy interpolation with bat)
-                        // This works now because INSTANCE_IP is clean.
+                        // 3. Create dynamic inventory file
+                        // Uses Groovy interpolation (double quotes) for the clean variable
                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
                 }
@@ -348,7 +347,7 @@ pipeline {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
 
-                    // AWS CLI wait command (This now uses the clean env.INSTANCE_ID variable)
+                    // AWS CLI wait command uses the clean env.INSTANCE_ID variable
                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-1" 
 
                     echo 'AWS instance health checks passed. Proceeding to Ansible.'
@@ -358,12 +357,9 @@ pipeline {
 
         stage('Ansible Configuration') {
             steps {
-                // This stage remains correct, as the Ansible plugin handles SSH cred injection
-                ansiblePlaybook(
-                    playbook: 'playbooks/grafana.yml',
-                    inventory: 'dynamic_inventory.ini',
-                    credentialsId: SSH_CRED_ID,
-                )
+                // FIXED: Direct Ansible plugin use removed. Executing via WSL on Windows agent.
+                // Note: SSH key must be configured correctly for the user within WSL.
+                bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml"
             }
         }
     }
