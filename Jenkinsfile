@@ -1,68 +1,154 @@
 pipeline {
+
     agent any
 
+
+
     environment {
+
         TF_IN_AUTOMATION = 'true'
+
         TF_CLI_ARGS = '-no-color'
-        SSH_CRED_ID = 'aws-deployer-ssh-key' 
-        TF_CLI_CONFIG_FILE = credentials('aws-creds')
+
+        SSH_CRED_ID = 'Aadii_id'
+
+        // TF_CLI_CONFIG_FILE = credentials('aws-creds') // REMOVED: Incorrect usage
+
     }
+
+
 
     stages {
+
         stage('Terraform Provisioning') {
+
             steps {
-                script {
-                    sh 'terraform init'
-                    sh 'terraform apply -auto-approve'
 
-                    // 1. Extract Public IP Address of the provisioned instance
-                    env.INSTANCE_IP = sh(
-                        script: 'terraform output -raw instance_public_ip', 
-                        returnStdout: true
-                    ).trim()
-                    
-                    // 2. Extract Instance ID (for AWS CLI wait) 
-                    env.INSTANCE_ID = sh(
-                        script: 'terraform output -raw instance_id', 
-                        returnStdout: true
-                    ).trim()
+                // Use withCredentials to inject AWS credentials as environment variables
 
-                    echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
-                    echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
-                    
-                    // 3. Create a dynamic inventory file for Ansible 
-                    sh "echo '${env.INSTANCE_IP}' >> dynamic_inventory.ini"
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+
+                    script {
+
+                        // All 'sh' commands must be changed to 'bat' if running on a Windows Agent
+
+                        bat 'terraform init'
+
+                        bat 'terraform apply -auto-approve'
+
+
+
+                        // 1. Extract Public IP Address
+
+                        env.INSTANCE_IP = bat(
+
+                            script: 'terraform output -raw instance_public_ip',
+
+                            returnStdout: true
+
+                        ).trim()
+
+
+
+                        // 2. Extract Instance ID
+
+                        env.INSTANCE_ID = bat(
+
+                            script: 'terraform output -raw instance_id',
+
+                            returnStdout: true
+
+                        ).trim()
+
+
+
+                        echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
+
+                        echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
+
+
+
+                        // 3. Create dynamic inventory file
+
+                        // Note: Using 'bat' for this requires double quotes around the IP in the echo command.
+
+                        bat 'echo %INSTANCE_IP% >> dynamic_inventory.ini'
+
+                    }
+
                 }
+
             }
+
         }
+
+
 
         stage('Wait for AWS Instance Status') {
+
             steps {
-                echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
-                
-                // --- This is the simple, powerful AWS CLI command ---
-                // It polls AWS until status checks pass or it hits the default timeout (usually 15 minutes)
-                sh "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-2"  
-                
-                echo 'AWS instance health checks passed. Proceeding to Ansible.'
+
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+
+                    echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
+
+
+
+                    // 1. Region Mismatch: The previous log showed AWS_DEFAULT_REGION was 'us-east-1'.
+
+                    //    The previous run showed the wait command was 'us-east-2'. This must be consistent.
+
+                    // 2. Shell Fix: Use 'bat' command.
+
+                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-1" // Corrected region to us-east-1 (assuming it's correct)
+
+
+
+                    echo 'AWS instance health checks passed. Proceeding to Ansible.'
+
+                }
+
             }
+
         }
 
+
+
         stage('Ansible Configuration') {
+
             steps {
-                // Now you can proceed directly to Ansible, knowing SSH is almost certainly ready.
+
+                // This stage remains correct, as the Ansible plugin handles SSH cred injection
+
                 ansiblePlaybook(
+
                     playbook: 'playbooks/grafana.yml',
-                    inventory: 'dynamic_inventory.ini', 
-                    credentialsId: SSH_CRED_ID, // Key is securely injected by the plugin here
+
+                    inventory: 'dynamic_inventory.ini',
+
+                    credentialsId: SSH_CRED_ID,
+
                 )
+
             }
+
         }
+
     }
-    
+
+
+
     post {
+
         always {
-            sh 'rm -f dynamic_inventory.ini'
+
+            // Use 'bat' for file removal on Windows
+
+            bat 'del /f dynamic_inventory.ini'
+
         }
+
     }
+
 }
+
