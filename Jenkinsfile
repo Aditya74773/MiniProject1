@@ -359,7 +359,7 @@ pipeline {
             steps {
                 // FIXED: Direct Ansible plugin use removed. Executing via WSL on Windows agent.
                 // Note: SSH key must be configured correctly for the user within WSL.
-                bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml"
+                bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml"
             }
         }
     }
