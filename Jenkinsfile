@@ -298,81 +298,81 @@
 
 // }
 
-pipeline {
+// pipeline {
 
-    agent any
+//     agent any
 
-    environment {
-        TF_IN_AUTOMATION = 'true'
-        TF_CLI_ARGS = '-no-color'
-        SSH_CRED_ID = 'Aadii_id'
-    }
+//     environment {
+//         TF_IN_AUTOMATION = 'true'
+//         TF_CLI_ARGS = '-no-color'
+//         SSH_CRED_ID = 'Aadii_id'
+//     }
 
-    stages {
+//     stages {
 
-        stage('Terraform Provisioning') {
-            steps {
-                // Securely inject AWS credentials
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    script {
-                        // Core Terraform commands remain as bat
-                        bat 'terraform init'
-                        bat 'terraform apply -auto-approve'
+//         stage('Terraform Provisioning') {
+//             steps {
+//                 // Securely inject AWS credentials
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     script {
+//                         // Core Terraform commands remain as bat
+//                         bat 'terraform init'
+//                         bat 'terraform apply -auto-approve'
 
-                        // 1. Extract Public IP Address (FIXED: Using powershell for clean output)
-                        env.INSTANCE_IP = powershell(
-                            script: 'terraform output -raw instance_public_ip',
-                            returnStdout: true
-                        ).trim()
+//                         // 1. Extract Public IP Address (FIXED: Using powershell for clean output)
+//                         env.INSTANCE_IP = powershell(
+//                             script: 'terraform output -raw instance_public_ip',
+//                             returnStdout: true
+//                         ).trim()
 
-                        // 2. Extract Instance ID (FIXED: Using powershell for clean output)
-                        env.INSTANCE_ID = powershell(
-                            script: 'terraform output -raw instance_id',
-                            returnStdout: true
-                        ).trim()
+//                         // 2. Extract Instance ID (FIXED: Using powershell for clean output)
+//                         env.INSTANCE_ID = powershell(
+//                             script: 'terraform output -raw instance_id',
+//                             returnStdout: true
+//                         ).trim()
 
-                        echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
-                        echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
+//                         echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
+//                         echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
 
-                        // 3. Create dynamic inventory file
-                        // Uses Groovy interpolation (double quotes) for the clean variable
-                        bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
-                    }
-                }
-            }
-        }
+//                         // 3. Create dynamic inventory file
+//                         // Uses Groovy interpolation (double quotes) for the clean variable
+//                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
+//                     }
+//                 }
+//             }
+//         }
 
-        stage('Wait for AWS Instance Status') {
-            steps {
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
+//         stage('Wait for AWS Instance Status') {
+//             steps {
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
 
-                    // AWS CLI wait command uses the clean env.INSTANCE_ID variable
-                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-1" 
+//                     // AWS CLI wait command uses the clean env.INSTANCE_ID variable
+//                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-1" 
 
-                    echo 'AWS instance health checks passed. Proceeding to Ansible.'
-                }
-            }
-        }
+//                     echo 'AWS instance health checks passed. Proceeding to Ansible.'
+//                 }
+//             }
+//         }
 
-        stage('Ansible Configuration') {
-            steps {
-                // FIXED: Direct Ansible plugin use removed. Executing via WSL on Windows agent.
-                // Note: SSH key must be configured correctly for the user within WSL.
-                bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml"
-            }
-        }
-    }
+//         stage('Ansible Configuration') {
+//             steps {
+//                 // FIXED: Direct Ansible plugin use removed. Executing via WSL on Windows agent.
+//                 // Note: SSH key must be configured correctly for the user within WSL.
+//                 bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml"
+//             }
+//         }
+//     }
 
-    post {
-        always {
-            steps {
-                // Use 'bat' for file removal on Windows
-                bat 'del /f dynamic_inventory.ini'
-            }
-        }
-    }
-}
+//     post {
+//         always {
+//             steps {
+//                 // Use 'bat' for file removal on Windows
+//                 bat 'del /f dynamic_inventory.ini'
+//             }
+//         }
+//     }
+// }
 
 
 // pipeline {
@@ -418,3 +418,84 @@ pipeline {
 //         }
 //     }
 // }
+
+pipeline {
+
+    agent any
+
+    environment {
+        // Terraform environment variables
+        TF_IN_AUTOMATION = 'true'
+        TF_CLI_ARGS = '-no-color'
+        // Jenkins credential ID for SSH (though we use a specific key path later)
+        SSH_CRED_ID = 'Aadii_id' 
+    }
+
+    stages {
+
+        stage('Terraform Provisioning') {
+            steps {
+                // Securely inject AWS credentials using the Jenkins 'AWS_Aadii' credential ID
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    script {
+                        // Core Terraform commands (assuming Windows agent running BAT/PowerShell)
+                        bat 'terraform init'
+                        bat 'terraform apply -auto-approve'
+
+                        // 1. Extract Public IP Address 
+                        env.INSTANCE_IP = powershell(
+                            script: 'terraform output -raw instance_public_ip',
+                            returnStdout: true
+                        ).trim()
+
+                        // 2. Extract Instance ID
+                        env.INSTANCE_ID = powershell(
+                            script: 'terraform output -raw instance_id',
+                            returnStdout: true
+                        ).trim()
+
+                        echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
+                        echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
+
+                        // 3. Create dynamic inventory file for Ansible
+                        bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
+                    }
+                }
+            }
+        }
+
+        stage('Wait for AWS Instance Status') {
+            steps {
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
+
+                    // AWS CLI wait command uses the environment variable
+                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-1" 
+
+                    echo 'AWS instance health checks passed. Proceeding to Ansible.'
+                }
+            }
+        }
+
+        stage('Ansible Configuration') {
+            steps {
+                // *** FIX APPLIED HERE for "Permission denied (publickey)" ***
+                // We assume:
+                // 1. The key is named 'id_rsa'.
+                // 2. The key is located at /home/adii_linux/.ssh/id_rsa inside WSL.
+                // 3. The connection user is 'ec2-user'. Change '-u ec2-user' if your AMI uses 'ubuntu', 'centos', etc.
+                bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ec2-user --private-key /home/adii_linux/.ssh/id_rsa"
+            }
+        }
+    }
+
+    post {
+        always {
+            // *** FIX APPLIED HERE for java.lang.NoSuchMethodError: No such DSL method 'steps' ***
+            // Removed the incorrect 'steps' block around the file deletion command.
+            
+            // Use 'bat' for file removal on Windows
+            bat 'del /f dynamic_inventory.ini'
+        }
+    }
+}
