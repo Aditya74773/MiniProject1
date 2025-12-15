@@ -2,7 +2,7 @@ output "instance_public_ip" {
   description = "Public ip address of the EC2 instance"
   value       = aws_instance.web_server[0].public_ip
 }
-output "insance_id" {
+output "instance_id" {
   value = aws_instance.web_server[0].id
   description = "ID of the EC2 instance"
   
