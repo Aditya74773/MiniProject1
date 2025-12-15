@@ -35,7 +35,7 @@ pipeline {
 
                         // 3. Create dynamic inventory file
                         // Note: Using 'bat' for this requires double quotes around the IP in the echo command.
-                        bat 'echo %INSTANCE_IP% > dynamic_inventory.ini'
+                        bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
                 }
             }
