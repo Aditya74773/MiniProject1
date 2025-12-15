@@ -4,37 +4,65 @@ pipeline {
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        // SSH_CRED_ID is not needed for destruction
+        SSH_CRED_ID = 'aws-deployer-ssh-key' 
+        TF_CLI_CONFIG_FILE = credentials('aws-creds')
     }
 
     stages {
-        stage('Terraform Destruction') { // Changed stage name
+        stage('Terraform Provisioning') {
             steps {
-                // Use withCredentials to inject AWS credentials
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    script {
-                        bat 'terraform init'
+                script {
+                    sh 'terraform init'
+                    sh 'terraform apply -auto-approve'
 
-                        // 1. Run terraform plan -destroy to show what will be removed
-                        bat 'terraform plan -destroy -out=tfdestroyplan'
+                    // 1. Extract Public IP Address of the provisioned instance
+                    env.INSTANCE_IP = sh(
+                        script: 'terraform output -raw instance_public_ip', 
+                        returnStdout: true
+                    ).trim()
+                    
+                    // 2. Extract Instance ID (for AWS CLI wait) 
+                    env.INSTANCE_ID = sh(
+                        script: 'terraform output -raw instance_id', 
+                        returnStdout: true
+                    ).trim()
 
-                        // 2. Execute terraform destroy, automatically approving the plan
-                        bat 'terraform destroy -auto-approve'
-                        
-                        // NOTE: Outputs and environment variable setting steps are removed
-                        // as they are not needed for destruction.
-                    }
+                    echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
+                    echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
+                    
+                    // 3. Create a dynamic inventory file for Ansible 
+                    sh "echo '${env.INSTANCE_IP}' >> dynamic_inventory.ini"
                 }
             }
         }
-        
-        // REMOVED: Wait for AWS Instance Status stage
-        // REMOVED: Ansible Configuration stage
-    }
 
+        stage('Wait for AWS Instance Status') {
+            steps {
+                echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
+                
+                // --- This is the simple, powerful AWS CLI command ---
+                // It polls AWS until status checks pass or it hits the default timeout (usually 15 minutes)
+                sh "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-2"  
+                
+                echo 'AWS instance health checks passed. Proceeding to Ansible.'
+            }
+        }
+
+        stage('Ansible Configuration') {
+            steps {
+                // Now you can proceed directly to Ansible, knowing SSH is almost certainly ready.
+                ansiblePlaybook(
+                    playbook: 'playbooks/grafana.yml',
+                    inventory: 'dynamic_inventory.ini', 
+                    credentialsId: SSH_CRED_ID, // Key is securely injected by the plugin here
+                )
+            }
+        }
+    }
+    
     post {
         always {
-            // Nothing to clean up since the inventory file was not created.
+            sh 'rm -f dynamic_inventory.ini'
         }
     }
 }
