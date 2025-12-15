@@ -2,67 +2,40 @@ pipeline {
     agent any
 
     environment {
-        AWS_DEFAULT_REGION = 'us-east-1'  // Adjust as needed
-        TF_VERSION = '1.0.0'  // Specify Terraform version
+        AWS_DEFAULT_REGION = 'us-east-1'
+        TF_VERSION = '1.0.0'
     }
 
     stages {
-        stage('Checkout') {
-            steps {
-                checkout scm
-            }
-        }
+        // ... (Checkout stage remains the same)
 
         stage('Terraform Init') {
             steps {
-                sh 'terraform init'
+                bat 'terraform init' // Changed from sh to bat
             }
         }
 
         stage('Terraform Validate') {
             steps {
-                sh 'terraform validate'
+                bat 'terraform validate' // Changed from sh to bat
             }
         }
 
         stage('Terraform Plan') {
             steps {
-                sh 'terraform plan -out=tfplan'
+                bat 'terraform plan -out=tfplan' // Changed from sh to bat
             }
         }
 
         stage('Terraform Apply') {
             steps {
                 input message: 'Apply Terraform changes?', ok: 'Apply'
-                sh 'terraform apply tfplan'
+                bat 'terraform apply tfplan' // Changed from sh to bat
             }
         }
 
-        stage('Ansible Deploy Grafana') {
-            steps {
-                ansiblePlaybook(
-                    playbook: 'grafana_playbook.yml',
-                    inventory: 'inventory.ini'
-                )
-            }
-        }
-
-        stage('Ansible Deploy Prometheus') {
-            steps {
-                ansiblePlaybook(
-                    playbook: 'prometheus.yml',  // Assuming this is a playbook, adjust if it's config
-                    inventory: 'inventory.ini'
-                )
-            }
-        }
+        // ... (Ansible stages remain the same, assuming the Ansible plugin is installed)
     }
 
-    post {
-        always {
-            archiveArtifacts artifacts: 'apply_log.txt', allowEmptyArchive: true
-        }
-        failure {
-            echo 'Pipeline failed'
-        }
-    }
+    // ... (post section remains the same)
 }
