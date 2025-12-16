@@ -547,20 +547,21 @@
 pipeline {
     agent any
 
-    // Define consistent environment variables for Terraform
+    // Define consistent environment variables
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        // Credential ID for the SSH Key (used by the ansiblePlaybook step)
-        SSH_CRED_ID = 'Aadii_id' // <-- Use your actual Jenkins SSH Credential ID
-        AWS_REGION = 'us-east-1' // <-- The region for AWS CLI wait command
+        // Your SSH Credential ID (used by ansiblePlaybook)
+        SSH_CRED_ID = 'Aadii_id' 
+        // CORRECTED: Set the region to us-east-1
+        AWS_REGION = 'us-east-1' 
     }
 
     stages {
-        // --- 1. Terraform Initialization (No credentials needed yet) ---
+        // --- 1. Terraform Initialization ---
         stage('Terraform Initialization') {
             steps {
-                // CORRECTED: Using 'bat' for Windows agent
+                // CORRECTED: Use 'bat' for Windows agent
                 bat 'terraform init'
             }
         }
@@ -570,7 +571,7 @@ pipeline {
             steps {
                 // Securely inject AWS credentials for Terraform
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    // CORRECTED: Using 'bat' for Windows agent
+                    // CORRECTED: Use 'bat' for Windows agent
                     bat 'terraform plan'
                 }
             }
@@ -579,127 +580,130 @@ pipeline {
         // --- 3. Manual Validation for Apply ---
         stage('Validate Apply') {
             input {
-                message "Do you want to apply this plan and provision the infrastructure?"
+                message "Do you want to apply this plan?"
                 ok "Apply"
             }
             steps {
-                echo 'Apply Accepted. Starting Provisioning...'
+                echo 'Apply Accepted'
             }
         }
-
+        
         // --- 4. Terraform Provisioning and Output Extraction ---
         stage('Terraform Provisioning') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
-                        // Apply the infrastructure changes
-                        // CORRECTED: Using 'bat' for Windows agent
+                        // CORRECTED: Use 'bat' for Windows agent
                         bat 'terraform apply -auto-approve'
 
-                        // Windows requires 'powershell' to reliably capture command output (returnStdout: true)
-                        // 1. Extract Public IP Address
+                        // Use 'powershell' to reliably capture command output
+                        // 1. Extract Public IP Address of the provisioned instance
                         env.INSTANCE_IP = powershell(
-                            script: 'terraform output -raw instance_public_ip',
+                            script: 'terraform output -raw instance_public_ip', 
                             returnStdout: true
                         ).trim()
-
-                        // 2. Extract Instance ID
+                        
+                        // 2. Extract Instance ID (for AWS CLI wait) 
                         env.INSTANCE_ID = powershell(
-                            script: 'terraform output -raw instance_id',
+                            script: 'terraform output -raw instance_id', 
                             returnStdout: true
                         ).trim()
 
                         echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
                         echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
-
-                        // 3. Create a dynamic inventory file for Ansible
-                        // CORRECTED: Using 'bat' for Windows agent file creation
+                        
+                        // 3. Create a dynamic inventory file for Ansible 
+                        // CORRECTED: Use 'bat' for Windows agent
                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
                 }
             }
         }
 
-        // --- 5. Wait for AWS Health Checks (Requires AWS Credentials) ---
+        // --- 5. Wait for AWS Instance Status (Requires AWS Credentials) ---
         stage('Wait for AWS Instance Status') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks in region ${env.AWS_REGION}..."
-
-                    // AWS CLI wait command
-                    // CORRECTED: Using 'bat' for Windows agent
-                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
-
+                    
+                    // CORRECTED: Use 'bat' and the correct AWS_REGION variable
+                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"  
+                    
                     echo 'AWS instance health checks passed. Proceeding to Ansible.'
                 }
             }
         }
-
+        
         // --- 6. Manual Validation for Ansible Configuration ---
         stage('Validate Ansible') {
             input {
-                message "Do you want to run Ansible to configure the instance?"
+                message "Do you want to run Ansible?"
                 ok "Run Ansible"
             }
             steps {
-                echo 'Ansible approved. Starting configuration...'
+                echo 'Ansible approved'
             }
         }
-
-        // --- 7. Ansible Configuration (Requires SSH Credentials) ---
+        
+        // --- 7. Ansible Configuration (Using secure plugin step) ---
         stage('Ansible Configuration') {
             steps {
-                // NOTE: The 'ansiblePlaybook' step is a Jenkins plugin step and is OS-agnostic, 
-                // but the underlying execution might still need a shell. 
-                // If this fails, you may need to revert to the BAT/WSL command in your original pipeline.
-                ansiblePlaybook(
-                    playbook: 'playbooks/grafana.yml',
-                    inventory: 'dynamic_inventory.ini',
-                    credentialsId: env.SSH_CRED_ID,
-                    extras: "-u ubuntu" // Check your AMI's default user!
-                )
+                // Use the secure Jenkins 'sshUserPrivateKey' binding for the key injection 
+                // and convert the path for the WSL environment to run Ansible.
+                withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CRED_ID, keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
+                    script {
+                        // 1. CONVERT WINDOWS PATH TO WSL PATH
+                        env.WSL_KEY_PATH = bat(
+                            script: "wsl wslpath -u \"${env.SSH_KEY_FILE}\"", 
+                            returnStdout: true
+                        ).trim()
+                        
+                        echo "Converted Key Path for WSL: ${env.WSL_KEY_PATH}"
+                        
+                        // 2. Execute Ansible inside WSL using the converted Linux path
+                        // We use BAT/WSL command to ensure compatibility on your Windows agent
+                        bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key \"${env.WSL_KEY_PATH}\""
+                    }
+                }
             }
         }
-
+        
         // --- 8. Manual Validation for Destroy ---
         stage('Validate Destroy') {
             input {
-                message "Do you want to destroy the deployed infrastructure?"
+                message "Do you want to destroy?"
                 ok "Destroy"
             }
             steps {
-                echo 'Destroy Approved. Starting teardown...'
+                echo 'Destroy Approved'
             }
         }
-
+        
         // --- 9. Terraform Destroy (Requires AWS Credentials) ---
         stage('Destroy') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    // CORRECTED: Using 'bat' for Windows agent
+                    // CORRECTED: Use 'bat' for Windows agent
                     bat 'terraform destroy -auto-approve'
                 }
             }
         }
-    }
-
-    // --- Post Actions (Cleanup and Failure Handling) ---
+    }    
+    
     post {
         always {
-            echo 'Cleaning up dynamic_inventory.ini...'
-            // CORRECTED: Using 'bat' for Windows file removal
-            bat 'del /f dynamic_inventory.ini'
+            // CORRECTED: Use 'bat' for Windows file removal
+            bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
         success {
-            echo '✅ Pipeline execution successful!'
+            echo '✅ Success!'
         }
         failure {
-            echo '🚨 Pipeline failed. Attempting to destroy provisioned infrastructure...'
+            // Automatic destruction on failure
             withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                // CORRECTED: Using 'bat' for Windows agent
+                // CORRECTED: Use 'bat' for Windows agent
                 bat 'terraform destroy -auto-approve'
             }
-            echo 'Cleanup attempt complete.'
         }
     }
 }
