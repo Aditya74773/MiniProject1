@@ -556,15 +556,17 @@ pipeline {
     stages {
         stage('Terraform Initialization') {
             steps {
-                bat 'terraform init'
-                bat 'terraform plan' // Good practice to see what will happen first
+                // Wrap this in credentials so terraform can talk to AWS to generate the plan
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    bat 'terraform init'
+                    bat 'terraform plan'
+                }
             }
         }
 
-        // --- ADDED STEP 1: APPROVE INFRASTRUCTURE ---
         stage('Approve Infrastructure') {
             steps {
-                input message: "Do you want to provision the AWS resources?", ok: "Yes, Deploy"
+                input message: "Review the plan in the logs. Do you want to provision the AWS resources?", ok: "Yes, Deploy"
             }
         }
 
@@ -573,8 +575,11 @@ pipeline {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         bat 'terraform apply -auto-approve'
+                        
+                        // Extract IP and ID using PowerShell to ensure clean strings
                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
+                        
                         echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
@@ -591,26 +596,23 @@ pipeline {
             }
         }
 
-        // --- ADDED STEP 2: APPROVE CONFIGURATION ---
         stage('Approve Ansible') {
             steps {
-                input message: "Server is ready. Run Ansible to install Grafana?", ok: "Run Ansible"
+                input message: "Instance is healthy. Run Ansible playbook?", ok: "Run Ansible"
             }
         }
 
         stage('Ansible Configuration') {
             steps {
                 echo "Running Ansible using WSL internal SSH key..."
+                // Ensure your playbook path is correct (playbooks/grafana.yml vs grafana_playbook.yml)
                 bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key /home/adii_linux/.ssh/id_rsa"
             }
         }
 
-        // --- ADDED STEP 3: MANUAL DESTROY ---
         stage('Manual Destroy') {
             steps {
-                // This keeps the pipeline "Running" until you click Destroy
-                input message: "Finished working? Click to destroy the server.", ok: "Destroy Now"
-                
+                input message: "Finished testing Grafana? Click to destroy infrastructure.", ok: "Destroy Now"
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     bat 'terraform destroy -auto-approve'
                 }
@@ -623,7 +625,7 @@ pipeline {
             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
         success {
-            echo "✅ Grafana Deployed at http://${env.INSTANCE_IP}:3000"
+            echo "✅ Deployment Complete!"
         }
         failure {
             echo "🚨 Pipeline failed. Check the logs above."
