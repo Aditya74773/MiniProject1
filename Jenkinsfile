@@ -498,49 +498,202 @@
 //     }
 // }
 
-pipeline {
+// pipeline {
 
+//     agent any
+
+//     environment {
+//         // Terraform environment variables
+//         TF_IN_AUTOMATION = 'true'
+//         TF_CLI_ARGS = '-no-color'
+//         // These variables are no longer needed for destroy, but kept for general context
+//         SSH_CRED_ID = 'Aadii_id' 
+//     }
+
+//     stages {
+
+//         stage('Terraform Destroy') {
+//             steps {
+//                 // Securely inject AWS credentials using the Jenkins 'AWS_Aadii' credential ID
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     script {
+//                         echo "Starting Terraform destroy..."
+                        
+//                         // 1. Initialize Terraform
+//                         bat 'terraform init'
+
+//                         // 2. Execute Terraform destroy command
+//                         // This removes all resources defined in your configuration
+//                         bat 'terraform destroy -auto-approve'
+
+//                         echo "Terraform destroy complete."
+//                     }
+//                 }
+//             }
+//         }
+        
+//         // The 'Wait for AWS Instance Status' and 'Ansible Configuration' stages are removed
+//         // because the goal is now to destroy, not configure.
+//     }
+
+//     post {
+//         always {
+//             // Cleanup post-destroy, although the inventory file might not exist if 
+//             // the destroy pipeline is run standalone.
+//             bat 'del /f dynamic_inventory.ini'
+//         }
+//     }
+// }
+pipeline {
     agent any
 
+    // Define consistent environment variables for Terraform
     environment {
-        // Terraform environment variables
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        // These variables are no longer needed for destroy, but kept for general context
-        SSH_CRED_ID = 'Aadii_id' 
+        // Credential ID for the SSH Key (used by the ansiblePlaybook step)
+        SSH_CRED_ID = 'Aadii_id' // <-- Use your actual Jenkins SSH Credential ID
+        AWS_REGION = 'us-east-2' // <-- The region for AWS CLI wait command
     }
 
     stages {
-
-        stage('Terraform Destroy') {
+        // --- 1. Terraform Initialization (No credentials needed yet) ---
+        stage('Terraform Initialization') {
             steps {
-                // Securely inject AWS credentials using the Jenkins 'AWS_Aadii' credential ID
+                sh 'terraform init'
+            }
+        }
+
+        // --- 2. Terraform Plan (Requires AWS Credentials) ---
+        stage('Terraform Plan') {
+            steps {
+                // Securely inject AWS credentials for Terraform
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh 'terraform plan'
+                }
+            }
+        }
+
+        // --- 3. Manual Validation for Apply ---
+        stage('Validate Apply') {
+            input {
+                message "Do you want to apply this plan and provision the infrastructure?"
+                ok "Apply"
+            }
+            steps {
+                echo 'Apply Accepted. Starting Provisioning...'
+            }
+        }
+
+        // --- 4. Terraform Provisioning and Output Extraction ---
+        stage('Terraform Provisioning') {
+            steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
-                        echo "Starting Terraform destroy..."
-                        
-                        // 1. Initialize Terraform
-                        bat 'terraform init'
+                        // Apply the infrastructure changes
+                        sh 'terraform apply -auto-approve'
 
-                        // 2. Execute Terraform destroy command
-                        // This removes all resources defined in your configuration
-                        bat 'terraform destroy -auto-approve'
+                        // 1. Extract Public IP Address
+                        env.INSTANCE_IP = sh(
+                            script: 'terraform output -raw instance_public_ip',
+                            returnStdout: true
+                        ).trim()
 
-                        echo "Terraform destroy complete."
+                        // 2. Extract Instance ID
+                        env.INSTANCE_ID = sh(
+                            script: 'terraform output -raw instance_id',
+                            returnStdout: true
+                        ).trim()
+
+                        echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
+                        echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
+
+                        // 3. Create a dynamic inventory file for Ansible
+                        sh "echo '${env.INSTANCE_IP}' > dynamic_inventory.ini"
                     }
                 }
             }
         }
-        
-        // The 'Wait for AWS Instance Status' and 'Ansible Configuration' stages are removed
-        // because the goal is now to destroy, not configure.
+
+        // --- 5. Wait for AWS Health Checks (Requires AWS Credentials) ---
+        stage('Wait for AWS Instance Status') {
+            steps {
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks in region ${env.AWS_REGION}..."
+
+                    // AWS CLI wait command (polls until status checks pass)
+                    sh "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
+
+                    echo 'AWS instance health checks passed. Proceeding to Ansible.'
+                }
+            }
+        }
+
+        // --- 6. Manual Validation for Ansible Configuration ---
+        stage('Validate Ansible') {
+            input {
+                message "Do you want to run Ansible to configure the instance?"
+                ok "Run Ansible"
+            }
+            steps {
+                echo 'Ansible approved. Starting configuration...'
+            }
+        }
+
+        // --- 7. Ansible Configuration (Requires SSH Credentials) ---
+        stage('Ansible Configuration') {
+            steps {
+                // The ansiblePlaybook step securely retrieves the SSH key using credentialsId
+                // and injects it for the connection.
+                ansiblePlaybook(
+                    // Assuming your playbook is named 'grafana.yml' and is in a 'playbooks' directory
+                    playbook: 'playbooks/grafana.yml',
+                    inventory: 'dynamic_inventory.ini',
+                    credentialsId: env.SSH_CRED_ID, // Uses 'Aadii_id'
+                    // Ensure the 'user' matches the AMI's default user (e.g., 'ubuntu', 'ec2-user', 'centos')
+                    extras: "-u ubuntu" // <-- Check your AMI's default user!
+                )
+            }
+        }
+
+        // --- 8. Manual Validation for Destroy ---
+        stage('Validate Destroy') {
+            input {
+                message "Do you want to destroy the deployed infrastructure?"
+                ok "Destroy"
+            }
+            steps {
+                echo 'Destroy Approved. Starting teardown...'
+            }
+        }
+
+        // --- 9. Terraform Destroy (Requires AWS Credentials) ---
+        stage('Destroy') {
+            steps {
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    sh 'terraform destroy -auto-approve'
+                }
+            }
+        }
     }
 
+    // --- Post Actions (Cleanup and Failure Handling) ---
     post {
         always {
-            // Cleanup post-destroy, although the inventory file might not exist if 
-            // the destroy pipeline is run standalone.
-            bat 'del /f dynamic_inventory.ini'
+            // Cleanup the dynamically created inventory file
+            echo 'Cleaning up dynamic_inventory.ini...'
+            sh 'rm -f dynamic_inventory.ini'
+        }
+        success {
+            echo '✅ Pipeline execution successful!'
+        }
+        failure {
+            // Automatically destroy resources on failure to prevent orphaned infrastructure
+            echo '🚨 Pipeline failed. Attempting to destroy provisioned infrastructure...'
+            withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                sh 'terraform destroy -auto-approve'
+            }
+            echo 'Cleanup attempt complete.'
         }
     }
 }
