@@ -599,13 +599,13 @@ pipeline {
                         // Use 'powershell' to reliably capture command output
                         // 1. Extract Public IP Address of the provisioned instance
                         env.INSTANCE_IP = powershell(
-                            script: 'terraform output -raw instance_public_ip', 
+                            script: 'terraform output -raw instance_public_ip',
                             returnStdout: true
                         ).trim()
                         
                         // 2. Extract Instance ID (for AWS CLI wait) 
                         env.INSTANCE_ID = powershell(
-                            script: 'terraform output -raw instance_id', 
+                            script: 'terraform output -raw instance_id',
                             returnStdout: true
                         ).trim()
 
@@ -688,7 +688,7 @@ pipeline {
                 }
             }
         }
-    }    
+    }
     
     post {
         always {
