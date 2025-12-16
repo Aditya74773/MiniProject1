@@ -606,7 +606,7 @@ pipeline {
             steps {
                 echo "Running Ansible using WSL internal SSH key..."
                 // Ensure your playbook path is correct (playbooks/grafana.yml vs grafana_playbook.yml)
-                bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key /home/adii_linux/.ssh/id_rsa"
+                bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ubuntu --private-key /home/adii_linux/.ssh/id_rsa"
             }
         }
 
