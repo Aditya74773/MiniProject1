@@ -550,7 +550,6 @@ pipeline {
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        SSH_CRED_ID = 'Aadii_id' 
         AWS_REGION = 'us-east-1' 
     }
 
@@ -558,40 +557,25 @@ pipeline {
         stage('Terraform Initialization') {
             steps {
                 bat 'terraform init'
+                bat 'terraform plan' // Good practice to see what will happen first
             }
         }
 
-        stage('Terraform Plan') {
+        // --- ADDED STEP 1: APPROVE INFRASTRUCTURE ---
+        stage('Approve Infrastructure') {
             steps {
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    bat 'terraform plan'
-                }
+                input message: "Do you want to provision the AWS resources?", ok: "Yes, Deploy"
             }
         }
 
-        stage('Validate Apply') {
-            input {
-                message "Do you want to apply this plan?"
-                ok "Apply"
-            }
-            steps {
-                echo 'Apply Accepted'
-            }
-        }
-        
         stage('Terraform Provisioning') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         bat 'terraform apply -auto-approve'
-
-                        // Use PowerShell for cleaner output capture
                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
-
                         echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
-                        echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
-                        
                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
                 }
@@ -601,76 +585,48 @@ pipeline {
         stage('Wait for AWS Instance Status') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
+                    echo "Waiting for instance ${env.INSTANCE_ID} to pass health checks..."
                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
-                    echo 'AWS instance health checks passed.'
                 }
             }
         }
-        
-        stage('Validate Ansible') {
-            input {
-                message "Do you want to run Ansible?"
-                ok "Run Ansible"
-            }
+
+        // --- ADDED STEP 2: APPROVE CONFIGURATION ---
+        stage('Approve Ansible') {
             steps {
-                echo 'Ansible approved'
+                input message: "Server is ready. Run Ansible to install Grafana?", ok: "Run Ansible"
             }
         }
-        
+
         stage('Ansible Configuration') {
             steps {
-                withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CRED_ID, keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
-                    script {
-                        // FIX: Using powershell to get a clean WSL path without the 'C:\>...' prefix
-                        // We also escape backslashes in the Windows path so wslpath reads it correctly
-                        def escapedPath = env.SSH_KEY_FILE.replace("\\", "/")
-                        env.WSL_KEY_PATH = powershell(
-                            script: "wsl wslpath -u '${escapedPath}'", 
-                            returnStdout: true
-                        ).trim()
-                        
-                        echo "Clean WSL Key Path: ${env.WSL_KEY_PATH}"
-                        
-                        // Execute Ansible inside WSL
-                        bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key \"${env.WSL_KEY_PATH}\""
-                    }
-                }
+                echo "Running Ansible using WSL internal SSH key..."
+                bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key /home/adii_linux/.ssh/id_rsa"
             }
         }
-        
-        stage('Validate Destroy') {
-            input {
-                message "Do you want to destroy resources?"
-                ok "Destroy"
-            }
+
+        // --- ADDED STEP 3: MANUAL DESTROY ---
+        stage('Manual Destroy') {
             steps {
-                echo 'Destroy Approved'
-            }
-        }
-        
-        stage('Destroy') {
-            steps {
+                // This keeps the pipeline "Running" until you click Destroy
+                input message: "Finished working? Click to destroy the server.", ok: "Destroy Now"
+                
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     bat 'terraform destroy -auto-approve'
                 }
             }
         }
     }
-    
+
     post {
         always {
-            // Clean up inventory file
             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
         success {
-            echo '✅ Deployment Successful!'
+            echo "✅ Grafana Deployed at http://${env.INSTANCE_IP}:3000"
         }
         failure {
-            echo '🚨 Pipeline failed. Initiating automatic destroy...'
-            withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                bat 'terraform destroy -auto-approve'
-            }
+            echo "🚨 Pipeline failed. Check the logs above."
         }
     }
 }
