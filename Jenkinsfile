@@ -553,7 +553,7 @@ pipeline {
         TF_CLI_ARGS = '-no-color'
         // Credential ID for the SSH Key (used by the ansiblePlaybook step)
         SSH_CRED_ID = 'Aadii_id' // <-- Use your actual Jenkins SSH Credential ID
-        AWS_REGION = 'us-east-2' // <-- The region for AWS CLI wait command
+        AWS_REGION = 'us-east-1' // <-- The region for AWS CLI wait command
     }
 
     stages {
