@@ -551,17 +551,16 @@ pipeline {
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        // Your SSH Credential ID (used by ansiblePlaybook)
-        SSH_CRED_ID = 'Aadii_id' 
-        // CORRECTED: Set the region to us-east-1
-        AWS_REGION = 'us-east-1' 
+        SSH_CRED_ID = 'Aadii_id' // Jenkins Credential ID for SSH Key
+        AWS_REGION = 'us-east-1' // AWS Region for all operations
     }
 
     stages {
         // --- 1. Terraform Initialization ---
         stage('Terraform Initialization') {
             steps {
-                // CORRECTED: Use 'bat' for Windows agent
+                // Check if 'terraform' is in Windows PATH
+                bat 'where terraform' 
                 bat 'terraform init'
             }
         }
@@ -569,9 +568,7 @@ pipeline {
         // --- 2. Terraform Plan (Requires AWS Credentials) ---
         stage('Terraform Plan') {
             steps {
-                // Securely inject AWS credentials for Terraform
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    // CORRECTED: Use 'bat' for Windows agent
                     bat 'terraform plan'
                 }
             }
@@ -593,27 +590,15 @@ pipeline {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
-                        // CORRECTED: Use 'bat' for Windows agent
                         bat 'terraform apply -auto-approve'
 
                         // Use 'powershell' to reliably capture command output
-                        // 1. Extract Public IP Address of the provisioned instance
-                        env.INSTANCE_IP = powershell(
-                            script: 'terraform output -raw instance_public_ip',
-                            returnStdout: true
-                        ).trim()
-                        
-                        // 2. Extract Instance ID (for AWS CLI wait) 
-                        env.INSTANCE_ID = powershell(
-                            script: 'terraform output -raw instance_id',
-                            returnStdout: true
-                        ).trim()
+                        env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
+                        env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
 
                         echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
                         echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
                         
-                        // 3. Create a dynamic inventory file for Ansible 
-                        // CORRECTED: Use 'bat' for Windows agent
                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
                 }
@@ -624,9 +609,10 @@ pipeline {
         stage('Wait for AWS Instance Status') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    // Check if 'aws' is in Windows PATH
+                    bat 'where aws' 
                     echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks in region ${env.AWS_REGION}..."
                     
-                    // CORRECTED: Use 'bat' and the correct AWS_REGION variable
                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"  
                     
                     echo 'AWS instance health checks passed. Proceeding to Ansible.'
@@ -645,14 +631,16 @@ pipeline {
             }
         }
         
-        // --- 7. Ansible Configuration (Using secure plugin step) ---
+        // --- 7. Ansible Configuration (Secure WSL Execution) ---
         stage('Ansible Configuration') {
             steps {
-                // Use the secure Jenkins 'sshUserPrivateKey' binding for the key injection 
-                // and convert the path for the WSL environment to run Ansible.
+                // Check if 'wsl' is available on Windows
+                bat 'where wsl'
+                
                 withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CRED_ID, keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
                     script {
                         // 1. CONVERT WINDOWS PATH TO WSL PATH
+                        // This step requires 'wsl' and 'wslpath' to be working correctly.
                         env.WSL_KEY_PATH = bat(
                             script: "wsl wslpath -u \"${env.SSH_KEY_FILE}\"", 
                             returnStdout: true
@@ -660,8 +648,7 @@ pipeline {
                         
                         echo "Converted Key Path for WSL: ${env.WSL_KEY_PATH}"
                         
-                        // 2. Execute Ansible inside WSL using the converted Linux path
-                        // We use BAT/WSL command to ensure compatibility on your Windows agent
+                        // 2. Execute Ansible inside WSL
                         bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key \"${env.WSL_KEY_PATH}\""
                     }
                 }
@@ -683,7 +670,6 @@ pipeline {
         stage('Destroy') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    // CORRECTED: Use 'bat' for Windows agent
                     bat 'terraform destroy -auto-approve'
                 }
             }
@@ -692,16 +678,16 @@ pipeline {
     
     post {
         always {
-            // CORRECTED: Use 'bat' for Windows file removal
+            // Clean up inventory file
             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
         success {
-            echo '✅ Success!'
+            echo '✅ Success! Infrastructure Provisioned, Configured, and Cleaned.'
         }
         failure {
             // Automatic destruction on failure
+            echo '🚨 Pipeline failed. Initiating automatic Terraform destroy...'
             withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                // CORRECTED: Use 'bat' for Windows agent
                 bat 'terraform destroy -auto-approve'
             }
         }
