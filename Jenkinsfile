@@ -560,7 +560,8 @@ pipeline {
         // --- 1. Terraform Initialization (No credentials needed yet) ---
         stage('Terraform Initialization') {
             steps {
-                sh 'terraform init'
+                // CORRECTED: Using 'bat' for Windows agent
+                bat 'terraform init'
             }
         }
 
@@ -569,7 +570,8 @@ pipeline {
             steps {
                 // Securely inject AWS credentials for Terraform
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh 'terraform plan'
+                    // CORRECTED: Using 'bat' for Windows agent
+                    bat 'terraform plan'
                 }
             }
         }
@@ -591,16 +593,18 @@ pipeline {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         // Apply the infrastructure changes
-                        sh 'terraform apply -auto-approve'
+                        // CORRECTED: Using 'bat' for Windows agent
+                        bat 'terraform apply -auto-approve'
 
+                        // Windows requires 'powershell' to reliably capture command output (returnStdout: true)
                         // 1. Extract Public IP Address
-                        env.INSTANCE_IP = sh(
+                        env.INSTANCE_IP = powershell(
                             script: 'terraform output -raw instance_public_ip',
                             returnStdout: true
                         ).trim()
 
                         // 2. Extract Instance ID
-                        env.INSTANCE_ID = sh(
+                        env.INSTANCE_ID = powershell(
                             script: 'terraform output -raw instance_id',
                             returnStdout: true
                         ).trim()
@@ -609,7 +613,8 @@ pipeline {
                         echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
 
                         // 3. Create a dynamic inventory file for Ansible
-                        sh "echo '${env.INSTANCE_IP}' > dynamic_inventory.ini"
+                        // CORRECTED: Using 'bat' for Windows agent file creation
+                        bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
                 }
             }
@@ -621,8 +626,9 @@ pipeline {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks in region ${env.AWS_REGION}..."
 
-                    // AWS CLI wait command (polls until status checks pass)
-                    sh "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
+                    // AWS CLI wait command
+                    // CORRECTED: Using 'bat' for Windows agent
+                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
 
                     echo 'AWS instance health checks passed. Proceeding to Ansible.'
                 }
@@ -643,15 +649,14 @@ pipeline {
         // --- 7. Ansible Configuration (Requires SSH Credentials) ---
         stage('Ansible Configuration') {
             steps {
-                // The ansiblePlaybook step securely retrieves the SSH key using credentialsId
-                // and injects it for the connection.
+                // NOTE: The 'ansiblePlaybook' step is a Jenkins plugin step and is OS-agnostic, 
+                // but the underlying execution might still need a shell. 
+                // If this fails, you may need to revert to the BAT/WSL command in your original pipeline.
                 ansiblePlaybook(
-                    // Assuming your playbook is named 'grafana.yml' and is in a 'playbooks' directory
                     playbook: 'playbooks/grafana.yml',
                     inventory: 'dynamic_inventory.ini',
-                    credentialsId: env.SSH_CRED_ID, // Uses 'Aadii_id'
-                    // Ensure the 'user' matches the AMI's default user (e.g., 'ubuntu', 'ec2-user', 'centos')
-                    extras: "-u ubuntu" // <-- Check your AMI's default user!
+                    credentialsId: env.SSH_CRED_ID,
+                    extras: "-u ubuntu" // Check your AMI's default user!
                 )
             }
         }
@@ -671,7 +676,8 @@ pipeline {
         stage('Destroy') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    sh 'terraform destroy -auto-approve'
+                    // CORRECTED: Using 'bat' for Windows agent
+                    bat 'terraform destroy -auto-approve'
                 }
             }
         }
@@ -680,18 +686,18 @@ pipeline {
     // --- Post Actions (Cleanup and Failure Handling) ---
     post {
         always {
-            // Cleanup the dynamically created inventory file
             echo 'Cleaning up dynamic_inventory.ini...'
-            sh 'rm -f dynamic_inventory.ini'
+            // CORRECTED: Using 'bat' for Windows file removal
+            bat 'del /f dynamic_inventory.ini'
         }
         success {
             echo '✅ Pipeline execution successful!'
         }
         failure {
-            // Automatically destroy resources on failure to prevent orphaned infrastructure
             echo '🚨 Pipeline failed. Attempting to destroy provisioned infrastructure...'
             withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                sh 'terraform destroy -auto-approve'
+                // CORRECTED: Using 'bat' for Windows agent
+                bat 'terraform destroy -auto-approve'
             }
             echo 'Cleanup attempt complete.'
         }
