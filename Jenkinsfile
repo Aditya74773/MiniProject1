@@ -547,25 +547,20 @@
 pipeline {
     agent any
 
-    // Define consistent environment variables
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        SSH_CRED_ID = 'Aadii_id' // Jenkins Credential ID for SSH Key
-        AWS_REGION = 'us-east-1' // AWS Region for all operations
+        SSH_CRED_ID = 'Aadii_id' 
+        AWS_REGION = 'us-east-1' 
     }
 
     stages {
-        // --- 1. Terraform Initialization ---
         stage('Terraform Initialization') {
             steps {
-                // Check if 'terraform' is in Windows PATH
-                bat 'where terraform' 
                 bat 'terraform init'
             }
         }
 
-        // --- 2. Terraform Plan (Requires AWS Credentials) ---
         stage('Terraform Plan') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
@@ -574,7 +569,6 @@ pipeline {
             }
         }
 
-        // --- 3. Manual Validation for Apply ---
         stage('Validate Apply') {
             input {
                 message "Do you want to apply this plan?"
@@ -585,14 +579,12 @@ pipeline {
             }
         }
         
-        // --- 4. Terraform Provisioning and Output Extraction ---
         stage('Terraform Provisioning') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         bat 'terraform apply -auto-approve'
 
-                        // Use 'powershell' to reliably capture command output
                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
 
@@ -605,22 +597,19 @@ pipeline {
             }
         }
 
-        // --- 5. Wait for AWS Instance Status (Requires AWS Credentials) ---
         stage('Wait for AWS Instance Status') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    // Check if 'aws' is in Windows PATH
-                    bat 'where aws' 
                     echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks in region ${env.AWS_REGION}..."
                     
-                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"  
+                    // CLEAN LINE (Fixed the hidden character 0xA0)
+                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
                     
                     echo 'AWS instance health checks passed. Proceeding to Ansible.'
                 }
             }
         }
         
-        // --- 6. Manual Validation for Ansible Configuration ---
         stage('Validate Ansible') {
             input {
                 message "Do you want to run Ansible?"
@@ -631,16 +620,11 @@ pipeline {
             }
         }
         
-        // --- 7. Ansible Configuration (Secure WSL Execution) ---
         stage('Ansible Configuration') {
             steps {
-                // Check if 'wsl' is available on Windows
-                bat 'where wsl'
-                
                 withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CRED_ID, keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
                     script {
-                        // 1. CONVERT WINDOWS PATH TO WSL PATH
-                        // This step requires 'wsl' and 'wslpath' to be working correctly.
+                        // Converts Windows path (SSH_KEY_FILE) to WSL Linux path (/mnt/c/...)
                         env.WSL_KEY_PATH = bat(
                             script: "wsl wslpath -u \"${env.SSH_KEY_FILE}\"", 
                             returnStdout: true
@@ -648,14 +632,13 @@ pipeline {
                         
                         echo "Converted Key Path for WSL: ${env.WSL_KEY_PATH}"
                         
-                        // 2. Execute Ansible inside WSL
+                        // Execute Ansible inside WSL
                         bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key \"${env.WSL_KEY_PATH}\""
                     }
                 }
             }
         }
         
-        // --- 8. Manual Validation for Destroy ---
         stage('Validate Destroy') {
             input {
                 message "Do you want to destroy?"
@@ -666,7 +649,6 @@ pipeline {
             }
         }
         
-        // --- 9. Terraform Destroy (Requires AWS Credentials) ---
         stage('Destroy') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
@@ -678,15 +660,13 @@ pipeline {
     
     post {
         always {
-            // Clean up inventory file
             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
         success {
-            echo '✅ Success! Infrastructure Provisioned, Configured, and Cleaned.'
+            echo '✅ Success!'
         }
         failure {
-            // Automatic destruction on failure
-            echo '🚨 Pipeline failed. Initiating automatic Terraform destroy...'
+            echo '🚨 Pipeline failed. Initiating automatic destroy...'
             withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                 bat 'terraform destroy -auto-approve'
             }
