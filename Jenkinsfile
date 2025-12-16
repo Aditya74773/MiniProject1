@@ -585,6 +585,7 @@ pipeline {
                     script {
                         bat 'terraform apply -auto-approve'
 
+                        // Use PowerShell for cleaner output capture
                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
 
@@ -600,12 +601,9 @@ pipeline {
         stage('Wait for AWS Instance Status') {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks in region ${env.AWS_REGION}..."
-                    
-                    // CLEAN LINE (Fixed the hidden character 0xA0)
+                    echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
-                    
-                    echo 'AWS instance health checks passed. Proceeding to Ansible.'
+                    echo 'AWS instance health checks passed.'
                 }
             }
         }
@@ -624,13 +622,15 @@ pipeline {
             steps {
                 withCredentials([sshUserPrivateKey(credentialsId: env.SSH_CRED_ID, keyFileVariable: 'SSH_KEY_FILE', usernameVariable: 'SSH_USER')]) {
                     script {
-                        // Converts Windows path (SSH_KEY_FILE) to WSL Linux path (/mnt/c/...)
-                        env.WSL_KEY_PATH = bat(
-                            script: "wsl wslpath -u \"${env.SSH_KEY_FILE}\"", 
+                        // FIX: Using powershell to get a clean WSL path without the 'C:\>...' prefix
+                        // We also escape backslashes in the Windows path so wslpath reads it correctly
+                        def escapedPath = env.SSH_KEY_FILE.replace("\\", "/")
+                        env.WSL_KEY_PATH = powershell(
+                            script: "wsl wslpath -u '${escapedPath}'", 
                             returnStdout: true
                         ).trim()
                         
-                        echo "Converted Key Path for WSL: ${env.WSL_KEY_PATH}"
+                        echo "Clean WSL Key Path: ${env.WSL_KEY_PATH}"
                         
                         // Execute Ansible inside WSL
                         bat "wsl ansible-playbook -i dynamic_inventory.ini playbooks/grafana.yml -u ubuntu --private-key \"${env.WSL_KEY_PATH}\""
@@ -641,7 +641,7 @@ pipeline {
         
         stage('Validate Destroy') {
             input {
-                message "Do you want to destroy?"
+                message "Do you want to destroy resources?"
                 ok "Destroy"
             }
             steps {
@@ -660,10 +660,11 @@ pipeline {
     
     post {
         always {
+            // Clean up inventory file
             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
         success {
-            echo '✅ Success!'
+            echo '✅ Deployment Successful!'
         }
         failure {
             echo '🚨 Pipeline failed. Initiating automatic destroy...'
