@@ -765,7 +765,7 @@ pipeline {
         stage('Setup Environment') {
             steps {
                 script {
-                    // This extracts 'dev' from 'origin/dev' or 'refs/heads/dev'
+                    // Extracts 'dev' from 'origin/dev'
                     def rawBranch = env.GIT_BRANCH ?: "main"
                     env.CLEAN_BRANCH = rawBranch.contains('/') ? rawBranch.split('/')[-1] : rawBranch
                     echo "Targeting Var File: ${env.CLEAN_BRANCH}.tfvars"
@@ -777,7 +777,6 @@ pipeline {
             steps {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     bat 'terraform init'
-                    // Uses the cleaned branch name
                     bat "terraform plan -var-file=${env.CLEAN_BRANCH}.tfvars"
                 }
             }
@@ -811,7 +810,9 @@ pipeline {
 
         stage('Wait for AWS Instance Status') {
             steps {
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_REGION', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                // FIXED: Removed the double 'secretkeyVariable' and moved AWS_REGION to simple env usage
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    echo "Waiting for instance ${env.INSTANCE_ID} in ${env.AWS_REGION}..."
                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
                 }
             }
@@ -841,7 +842,6 @@ pipeline {
         }
         failure {
             script {
-                // Defensive check to avoid null.tfvars error in cleanup
                 if (env.CLEAN_BRANCH) {
                     withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                         bat "terraform destroy -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars || echo 'Cleanup skipped or failed'"
