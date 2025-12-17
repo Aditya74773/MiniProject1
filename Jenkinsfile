@@ -544,91 +544,208 @@
 //         }
 //     }
 // }
+// pipeline {
+//     agent any
+
+//     environment {
+//         TF_IN_AUTOMATION = 'true'
+//         TF_CLI_ARGS = '-no-color'
+//         AWS_REGION = 'us-east-1' 
+//     }
+
+//     stages {
+//         stage('Terraform Initialization') {
+//             steps {
+//                 // Wrap this in credentials so terraform can talk to AWS to generate the plan
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     bat 'terraform init'
+//                     bat 'terraform plan'
+//                 }
+//             }
+//         }
+
+//         stage('Approve Infrastructure') {
+//             steps {
+//                 input message: "Review the plan in the logs. Do you want to provision the AWS resources?", ok: "Yes, Deploy"
+//             }
+//         }
+
+//         stage('Terraform Provisioning') {
+//             steps {
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     script {
+//                         bat 'terraform apply -auto-approve'
+                        
+//                         // Extract IP and ID using PowerShell to ensure clean strings
+//                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
+//                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
+                        
+//                         echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
+//                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage('Wait for AWS Instance Status') {
+//             steps {
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     echo "Waiting for instance ${env.INSTANCE_ID} to pass health checks..."
+//                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
+//                 }
+//             }
+//         }
+
+//         stage('Approve Ansible') {
+//             steps {
+//                 input message: "Instance is healthy. Run Ansible playbook?", ok: "Run Ansible"
+//             }
+//         }
+
+//         stage('Ansible Configuration') {
+//             steps {
+//                 echo "Running Ansible using WSL internal SSH key..."
+//                 // Ensure your playbook path is correct (playbooks/grafana.yml vs grafana_playbook.yml)
+//                 bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ubuntu --private-key /home/adii_linux/.ssh/id_rsa"
+//             }
+//         }
+
+//         stage('Manual Destroy') {
+//             steps {
+//                 input message: "Finished testing Grafana? Click to destroy infrastructure.", ok: "Destroy Now"
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     bat 'terraform destroy -auto-approve'
+//                 }
+//             }
+//         }
+//     }
+
+//     post {
+//         always {
+//             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
+//         }
+//         success {
+//             echo "✅ Deployment Complete!"
+//         }
+//         failure {
+//             echo "🚨 Pipeline failed. Check the logs above."
+//         }
+//     }
+// }
+
 pipeline {
     agent any
 
     environment {
         TF_IN_AUTOMATION = 'true'
         TF_CLI_ARGS = '-no-color'
-        AWS_REGION = 'us-east-1' 
+        SSH_CRED_ID = 'aws-deployer-ssh-key' 
+        TF_CLI_CONFIG_FILE = credentials('aws-creds')
     }
 
     stages {
         stage('Terraform Initialization') {
             steps {
-                // Wrap this in credentials so terraform can talk to AWS to generate the plan
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    bat 'terraform init'
-                    bat 'terraform plan'
-                }
+                sh 'terraform init'
+                sh 'cat $BRANCH_NAME.tfvars'
             }
         }
-
-        stage('Approve Infrastructure') {
+        stage('Terraform Plan') {
             steps {
-                input message: "Review the plan in the logs. Do you want to provision the AWS resources?", ok: "Yes, Deploy"
+                sh 'terraform plan -var-file=$BRANCH_NAME.tfvars'
             }
         }
-
+        stage('Validate Apply') {
+            
+            input {
+                message "Do you want to apply this plan?"
+                ok "Apply"
+            }
+            steps {
+                echo 'Apply Accepted'
+            }
+        }
         stage('Terraform Provisioning') {
             steps {
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    script {
-                        bat 'terraform apply -auto-approve'
-                        
-                        // Extract IP and ID using PowerShell to ensure clean strings
-                        env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
-                        env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
-                        
-                        echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
-                        bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
-                    }
+                script {
+                    sh 'terraform apply -auto-approve -var-file=$BRANCH_NAME.tfvars'
+
+                    // 1. Extract Public IP Address of the provisioned instance
+                    env.INSTANCE_IP = sh(
+                        script: 'terraform output -raw instance_public_ip', 
+                        returnStdout: true
+                    ).trim()
+                    
+                    // 2. Extract Instance ID (for AWS CLI wait) 
+                    env.INSTANCE_ID = sh(
+                        script: 'terraform output -raw instance_id', 
+                        returnStdout: true
+                    ).trim()
+
+                    echo "Provisioned Instance IP: ${env.INSTANCE_IP}"
+                    echo "Provisioned Instance ID: ${env.INSTANCE_ID}"
+                    
+                    // 3. Create a dynamic inventory file for Ansible 
+                    sh "echo '${env.INSTANCE_IP}' > dynamic_inventory.ini"
                 }
             }
         }
 
         stage('Wait for AWS Instance Status') {
             steps {
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    echo "Waiting for instance ${env.INSTANCE_ID} to pass health checks..."
-                    bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
-                }
+                echo "Waiting for instance ${env.INSTANCE_ID} to pass AWS health checks..."
+                
+                // --- This is the simple, powerful AWS CLI command ---
+                // It polls AWS until status checks pass or it hits the default timeout (usually 15 minutes)
+                sh "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region us-east-2"  
+                
+                echo 'AWS instance health checks passed. Proceeding to Ansible.'
             }
         }
-
-        stage('Approve Ansible') {
+        stage('Validate Ansible') {
+            
+            input {
+                message "Do you want to run Ansible?"
+                ok "Run Ansible"
+            }
             steps {
-                input message: "Instance is healthy. Run Ansible playbook?", ok: "Run Ansible"
+                echo 'Ansible approved'
             }
         }
-
         stage('Ansible Configuration') {
             steps {
-                echo "Running Ansible using WSL internal SSH key..."
-                // Ensure your playbook path is correct (playbooks/grafana.yml vs grafana_playbook.yml)
-                bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ubuntu --private-key /home/adii_linux/.ssh/id_rsa"
+                // Now you can proceed directly to Ansible, knowing SSH is almost certainly ready.
+                ansiblePlaybook(
+                    playbook: 'playbooks/grafana.yml',
+                    inventory: 'dynamic_inventory.ini', 
+                    credentialsId: SSH_CRED_ID, // Key is securely injected by the plugin here
+                )
             }
         }
-
-        stage('Manual Destroy') {
+        stage('Validate Destroy') {
+            input {
+                message "Do you want to destroy??"
+                ok "Destroy"
+            }
             steps {
-                input message: "Finished testing Grafana? Click to destroy infrastructure.", ok: "Destroy Now"
-                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                    bat 'terraform destroy -auto-approve'
-                }
+                echo 'Destroy Approved'
             }
         }
-    }
-
+        stage('Destroy') {
+            steps {
+                sh 'terraform destroy -auto-approve -var-file=$BRANCH_NAME.tfvars'
+            }
+        }
+    }    
     post {
         always {
-            bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
+            sh 'rm -f dynamic_inventory.ini'
         }
         success {
-            echo "✅ Deployment Complete!"
+            echo 'Success!'
         }
         failure {
-            echo "🚨 Pipeline failed. Check the logs above."
+            sh 'terraform destroy -auto-approve -var-file=$BRANCH_NAME.tfvars || echo "Cleanup failed, please check manually."'
         }
     }
 }
