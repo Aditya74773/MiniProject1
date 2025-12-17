@@ -766,7 +766,7 @@ pipeline {
             steps {
                 script {
                     // Extracts 'dev' from 'origin/dev'
-                    def rawBranch = env.GIT_BRANCH ?: "main"
+                    def rawBranch = env.GIT_BRANCH ?: "dev"
                     env.CLEAN_BRANCH = rawBranch.contains('/') ? rawBranch.split('/')[-1] : rawBranch
                     echo "Targeting Var File: ${env.CLEAN_BRANCH}.tfvars"
                 }
