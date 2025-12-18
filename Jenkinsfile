@@ -784,7 +784,7 @@ pipeline {
 
         stage('Validate Apply') {
             input {
-                message "Do you want to apply the plan for ${env.CLEAN_BRANCH}?"
+                message "Do you want to apply the  plan for ${env.CLEAN_BRANCH}?"
                 ok "Apply"
             }
             steps {
