@@ -788,7 +788,7 @@ pipeline {
                     def fileExists = bat(script: "@if exist ${tfvarsFile} (echo true) else (echo false)", returnStdout: true).trim()
                     
                     if (fileExists == "false") {
-                        error "ABORTING: No variable file found for this branch. Please create ${tfvarsFile} in your repository."
+                        error "ABORTING: No variable file found for thiss branch. Please create ${tfvarsFile} in your repository."
                     }
 
                 }
