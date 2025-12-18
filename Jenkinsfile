@@ -894,11 +894,8 @@ pipeline {
             steps {
                 script {
                     def branch = env.GIT_BRANCH ?: env.BRANCH_NAME ?: bat(script: "@git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
-                    if (!branch || branch == "HEAD") {
-                        error "Could not determine branch name."
-                    }
                     env.CLEAN_BRANCH = branch.contains('/') ? branch.split('/')[-1] : branch
-                    echo "Successfully detected branch: ${env.CLEAN_BRANCH}"
+                    echo "Branch: ${env.CLEAN_BRANCH}"
                 }
             }
         }
@@ -918,8 +915,6 @@ pipeline {
                     // Only ask if NOT on main branch
                     if (env.CLEAN_BRANCH != 'main') {
                         input message: "Do you want to apply the plan for ${env.CLEAN_BRANCH}?", ok: "Apply"
-                    } else {
-                        echo "Main branch detected: Skipping approval (Continuous Deployment)"
                     }
                 }
             }
@@ -951,7 +946,7 @@ pipeline {
                 script {
                     // Only ask if NOT on main branch
                     if (env.CLEAN_BRANCH != 'main') {
-                        input message: "Provisioning complete. Run Ansible playbook?", ok: "Run Ansible"
+                        input message: "Run Ansible playbook?", ok: "Run Ansible"
                     }
                 }
             }
@@ -965,15 +960,11 @@ pipeline {
 
         stage('Manual Destroy') {
             steps {
-                script {
-                    // Only ask if NOT on main branch
-                    if (env.CLEAN_BRANCH != 'main') {
-                        input message: "Testing finished. Destroy infrastructure for ${env.CLEAN_BRANCH}?", ok: "Destroy Now"
-                    }
-                    
-                    withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                        bat "terraform destroy -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars"
-                    }
+                // This input is OUTSIDE any if-statement, so it will ask for BOTH main and dev
+                input message: "Testing finished. Destroy infrastructure for ${env.CLEAN_BRANCH}?", ok: "Destroy Now"
+                
+                withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+                    bat "terraform destroy -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars"
                 }
             }
         }
