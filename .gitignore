@@ -5,7 +5,7 @@
 *.tfvars
 *.tfplan
 .terraform.lock.hcl
-
+*.pem
 # Ansible
 *.retry
 aws_hosts
