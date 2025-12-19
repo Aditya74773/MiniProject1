@@ -4,6 +4,6 @@ gather_facts: no
 tasks:
   - name: grafana
     ansible.builtin.url:
-      url: http://(( inventory_hostname )):3000
+      url: http://{{inventory_hostname}}:3000
       follow_redirects: none
       status_code: [302]
