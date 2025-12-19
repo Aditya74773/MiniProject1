@@ -991,28 +991,18 @@ pipeline {
         stage('Setup Environment') {
             steps {
                 script {
-                    // Detect branch name dynamically from Jenkins env or Git CLI
+                    // Detect branch name
                     def branch = env.GIT_BRANCH ?: env.BRANCH_NAME ?: bat(script: "@git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
-                    
-                    if (!branch || branch == "HEAD") {
-                        error "Could not determine branch name. Ensure you are running from a Git repository."
-                    }
-
-                    // Clean the string (e.g., 'origin/dev' -> 'dev')
                     env.CLEAN_BRANCH = branch.contains('/') ? branch.split('/')[-1] : branch
                     echo "Successfully detected branch: ${env.CLEAN_BRANCH}"
                     
-                    // Verify that the required .tfvars file exists before proceeding
+                    // Verify .tfvars file
                     def tfvarsFile = "${env.CLEAN_BRANCH}.tfvars"
                     def fileExists = bat(script: "@if exist ${tfvarsFile} (echo true) else (echo false)", returnStdout: true).trim()
                     
                     if (fileExists == "false") {
-                        error "ABORTING: No variable file found for this branch. Please create ${tfvarsFile} in your repository."
+                        error "ABORTING: No variable file found for this branch. Please create ${tfvarsFile}."
                     }
-
-                    def branch = env.GIT_BRANCH ?: env.BRANCH_NAME ?: bat(script: "@git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
-                    env.CLEAN_BRANCH = branch.contains('/') ? branch.split('/')[-1] : branch
-                    echo "Branch: ${env.CLEAN_BRANCH}"
                 }
             }
         }
@@ -1027,18 +1017,13 @@ pipeline {
         }
 
         stage('Validate Apply') {
-
-            input {
-                message "Do you want to apply the plan for ${env.CLEAN_BRANCH}?"
-                ok "Apply"
-            }
-            steps {
-                echo "Apply Accepted for branch ${env.CLEAN_BRANCH}"
-
             steps {
                 script {
+                    // Only prompt for non-main branches
                     if (env.CLEAN_BRANCH != 'main') {
                         input message: "Do you want to apply the plan for ${env.CLEAN_BRANCH}?", ok: "Apply"
+                    } else {
+                        echo "Main branch: proceeding with auto-apply logic or manual approval logic as defined."
                     }
                 }
             }
@@ -1049,17 +1034,12 @@ pipeline {
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     script {
                         bat "terraform apply -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars"
-
-
-                        // Extract outputs using PowerShell to avoid Windows CLI "noisse"
+                        
+                        // Extract outputs using PowerShell
                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
 
                         echo "Provisioned IP: ${env.INSTANCE_IP}"
-
-                        env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
-                        env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
-
                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
                     }
                 }
@@ -1078,7 +1058,7 @@ pipeline {
             steps {
                 script {
                     if (env.CLEAN_BRANCH != 'main') {
-                        input message: "Run Ansible playboook?", ok: "Run Ansible"
+                        input message: "Run Ansible playbook?", ok: "Run Ansible"
                     }
                 }
             }
@@ -1086,17 +1066,13 @@ pipeline {
 
         stage('Ansible Configuration') {
             steps {
-                // Running the main setup playbook
- 
                 echo "Running Ansible via WSL Bridge..."
-
                 bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ubuntu --private-key ${env.WSL_SSH_KEY}"
             }
         }
 
         stage('Ansible Testing') {
             steps {
-                // Running the new test playbook
                 echo "Testing Grafana access..."
                 bat "wsl ansible-playbook -i dynamic_inventory.ini test_grafana.yml -u ubuntu --private-key ${env.WSL_SSH_KEY}"
             }
@@ -1104,13 +1080,8 @@ pipeline {
 
         stage('Manual Destroy') {
             steps {
-
-                input message: "Testing finished. Destroy infrastructure for ${env.CLEAN_BRANCH}?", ok: "Destroy Now"
-
-                // This input is OUTSIDE any if-statement, so it will ask for BOTH main and dev
                 input message: "Testing finished. Destroy infrastructure for ${env.CLEAN_BRANCH}?", ok: "Destroy Now"
                 
-
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
                     bat "terraform destroy -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars"
                 }
@@ -1122,7 +1093,6 @@ pipeline {
         always {
             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
-
         success {
             echo "✅ Deployment on branch '${env.CLEAN_BRANCH}' completed successfully!"
         }
@@ -1136,6 +1106,5 @@ pipeline {
                 }
             }
         }
-
     }
 }
