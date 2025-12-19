@@ -812,7 +812,7 @@ pipeline {
                     script {
                         bat "terraform apply -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars"
 
-                        // Extract outputs using PowerShell to avoid Windows CLI "noise"
+                        // Extract outputs using PowerShell to avoid Windows CLI "noisse"
                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
 
