@@ -879,6 +879,104 @@
 //         }
 //     }
 // }
+// pipeline {
+//     agent any
+
+//     environment {
+//         TF_IN_AUTOMATION = 'true'
+//         TF_CLI_ARGS = '-no-color'
+//         AWS_REGION = 'us-east-1' 
+//         WSL_SSH_KEY = '/home/adii_linux/.ssh/id_rsa'
+//     }
+
+//     stages {
+//         stage('Setup Environment') {
+//             steps {
+//                 script {
+//                     def branch = env.GIT_BRANCH ?: env.BRANCH_NAME ?: bat(script: "@git rev-parse --abbrev-ref HEAD", returnStdout: true).trim()
+//                     env.CLEAN_BRANCH = branch.contains('/') ? branch.split('/')[-1] : branch
+//                     echo "Branch: ${env.CLEAN_BRANCH}"
+//                 }
+//             }
+//         }
+
+//         stage('Terraform Initialization') {
+//             steps {
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     bat 'terraform init'
+//                     bat "terraform plan -var-file=${env.CLEAN_BRANCH}.tfvars"
+//                 }
+//             }
+//         }
+
+//         stage('Validate Apply') {
+//             steps {
+//                 script {
+//                     // Only ask if NOT on main branch
+//                     if (env.CLEAN_BRANCH != 'main') {
+//                         input message: "Do you want to apply the plan for ${env.CLEAN_BRANCH}?", ok: "Apply"
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage('Terraform Provisioning') {
+//             steps {
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     script {
+//                         bat "terraform apply -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars"
+//                         env.INSTANCE_IP = powershell(script: 'terraform output -raw instance_public_ip', returnStdout: true).trim()
+//                         env.INSTANCE_ID = powershell(script: 'terraform output -raw instance_id', returnStdout: true).trim()
+//                         bat "echo ${env.INSTANCE_IP} > dynamic_inventory.ini"
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage('Wait for AWS Instance Status') {
+//             steps {
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     bat "aws ec2 wait instance-status-ok --instance-ids ${env.INSTANCE_ID} --region ${env.AWS_REGION}"
+//                 }
+//             }
+//         }
+
+//         stage('Validate Ansible') {
+//             steps {
+//                 script {
+//                     // Only ask if NOT on main branch
+//                     if (env.CLEAN_BRANCH != 'main') {
+//                         input message: "Run Ansible playbook?", ok: "Run Ansible"
+//                     }
+//                 }
+//             }
+//         }
+
+//         stage('Ansible Configuration') {
+//             steps {
+//                 bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ubuntu --private-key ${env.WSL_SSH_KEY}"
+//             }
+//         }
+
+//         stage('Manual Destroy') {
+//             steps {
+//                 // This input is OUTSIDE any if-statement, so it will ask for BOTH main and dev
+//                 input message: "Testing finished. Destroy infrastructure for ${env.CLEAN_BRANCH}?", ok: "Destroy Now"
+                
+//                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
+//                     bat "terraform destroy -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars"
+//                 }
+//             }
+//         }
+//     }
+
+//     post {
+//         always {
+//             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
+//         }
+//     }
+// }
+
 pipeline {
     agent any
 
@@ -912,7 +1010,6 @@ pipeline {
         stage('Validate Apply') {
             steps {
                 script {
-                    // Only ask if NOT on main branch
                     if (env.CLEAN_BRANCH != 'main') {
                         input message: "Do you want to apply the plan for ${env.CLEAN_BRANCH}?", ok: "Apply"
                     }
@@ -944,7 +1041,6 @@ pipeline {
         stage('Validate Ansible') {
             steps {
                 script {
-                    // Only ask if NOT on main branch
                     if (env.CLEAN_BRANCH != 'main') {
                         input message: "Run Ansible playbook?", ok: "Run Ansible"
                     }
@@ -954,13 +1050,21 @@ pipeline {
 
         stage('Ansible Configuration') {
             steps {
+                // Running the main setup playbook
                 bat "wsl ansible-playbook -i dynamic_inventory.ini grafana_playbook.yml -u ubuntu --private-key ${env.WSL_SSH_KEY}"
+            }
+        }
+
+        stage('Ansible Testing') {
+            steps {
+                // Running the new test playbook
+                echo "Testing Grafana access..."
+                bat "wsl ansible-playbook -i dynamic_inventory.ini test_grafana.yml -u ubuntu --private-key ${env.WSL_SSH_KEY}"
             }
         }
 
         stage('Manual Destroy') {
             steps {
-                // This input is OUTSIDE any if-statement, so it will ask for BOTH main and dev
                 input message: "Testing finished. Destroy infrastructure for ${env.CLEAN_BRANCH}?", ok: "Destroy Now"
                 
                 withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
