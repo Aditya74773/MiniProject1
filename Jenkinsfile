@@ -1078,7 +1078,7 @@ pipeline {
             steps {
                 script {
                     if (env.CLEAN_BRANCH != 'main') {
-                        input message: "Run Ansible playbook?", ok: "Run Ansible"
+                        input message: "Run Ansible playboook?", ok: "Run Ansible"
                     }
                 }
             }
