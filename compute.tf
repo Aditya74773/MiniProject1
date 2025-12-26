@@ -71,7 +71,7 @@ resource "null_resource" "graphana_provisioner" {
 #         rm ~/.ssh/id_rsa_tmp
 #         EOT
 #     }
-#         resource "null_resource" "graphana_provisioner" {
+#         resource "null_resource" "graphana_provisionerr" {
 #   # ... (other settings) ...
 
    provisioner "local-exec" {
