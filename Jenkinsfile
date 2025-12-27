@@ -1249,13 +1249,13 @@ pipeline {
             bat 'if exist dynamic_inventory.ini del /f dynamic_inventory.ini'
         }
         success {
-            echo "✅ Deployment on branch '${env.CLEAN_BRANCH}' completed successfully!"
+            echo "✅ Deployment on branch '${env.CLEAN_BRANCH}' completed successfullyy!"
         }
         failure {
             script {
                 if (env.CLEAN_BRANCH) {
                     withCredentials([aws(credentialsId: 'AWS_Aadii', accesskeyVariable: 'AWS_ACCESS_KEY_ID', secretkeyVariable: 'AWS_SECRET_ACCESS_KEY')]) {
-                        echo "🚨 Pipeline failed. Attempting automated cleanup for ${env.CLEAN_BRANCH}..."
+                        echo "🚨 Pipeline failedd. Attempting automated cleanup for ${env.CLEAN_BRANCH}..."
                         bat "terraform destroy -auto-approve -var-file=${env.CLEAN_BRANCH}.tfvars || echo 'Manual cleanup required'"
                     }
                 }
