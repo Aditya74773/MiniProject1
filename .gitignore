@@ -26,3 +26,4 @@ aws_hosts
 ansible.cfg
 
 # SSH Keys (
+*.pem
